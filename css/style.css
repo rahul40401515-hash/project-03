@@ -246,6 +246,16 @@ button {
   transform: scaleX(-1);
 }
 
+.stage__video--neg {
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  filter: invert(1);
+  -webkit-filter: invert(1);
+  clip-path: polygon(0 0, 0 0, 0 0);
+  -webkit-clip-path: polygon(0 0, 0 0, 0 0);
+}
+
 .stage__hud {
   position: absolute;
   inset: 0;

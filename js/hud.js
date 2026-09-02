@@ -1,13 +1,15 @@
 /**
- * Fingertip HUD: black dots, thick neon connections,
- * negative (invert) fill inside the polygon they form.
+ * Fingertip HUD: black dots, thick neon connections.
+ * Negative fill is a CSS-inverted video clipped to the fingertip polygon
+ * (works on iOS; canvas filter invert does not).
  */
 
 import { HUD } from "./config.js";
 
 export class HUDRenderer {
-  constructor(canvas) {
+  constructor(canvas, invertEl = null) {
     this.canvas = canvas;
+    this.invertEl = invertEl;
     this.ctx = canvas.getContext("2d");
     this.enabled = true;
     this.dpr = 1;
@@ -56,13 +58,37 @@ export class HUDRenderer {
     this.ctx.clearRect(0, 0, this.cssW, this.cssH);
   }
 
+  setInvertClip(hull) {
+    const el = this.invertEl;
+    if (!el) return;
+    if (!hull || hull.length < 3) {
+      const empty = "polygon(0px 0px, 0px 0px, 0px 0px)";
+      el.style.clipPath = empty;
+      el.style.webkitClipPath = empty;
+      el.style.opacity = "0";
+      return;
+    }
+    const poly = `polygon(${hull
+      .map((p) => `${p.sx.toFixed(1)}px ${p.sy.toFixed(1)}px`)
+      .join(", ")})`;
+    el.style.clipPath = poly;
+    el.style.webkitClipPath = poly;
+    el.style.opacity = "1";
+  }
+
   draw({ video, mirrored, snapshot }) {
     const ctx = this.ctx;
     this.clear();
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this.setInvertClip(null);
+      return;
+    }
 
     const pts = snapshot?.points || [];
-    if (!video?.videoWidth || !pts.length) return;
+    if (!video?.videoWidth || !pts.length) {
+      this.setInvertClip(null);
+      return;
+    }
 
     const map = this.mapping(video, mirrored);
     const screen = pts.map((p) => {
@@ -71,34 +97,12 @@ export class HUDRenderer {
     });
 
     const hull = convexHull(screen);
-    if (hull.length >= 3) {
-      this.#negativeQuad(ctx, video, mirrored, map, hull);
-    }
+    this.setInvertClip(hull.length >= 3 ? hull : null);
+
     if (screen.length >= 2) {
       this.#neon(ctx, hull.length >= 3 ? hull : screen);
     }
     for (const p of screen) this.#dot(ctx, p);
-  }
-
-  #negativeQuad(ctx, video, mirrored, map, hull) {
-    const cw = this.cssW;
-    const ch = this.cssH;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(hull[0].sx, hull[0].sy);
-    for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].sx, hull[i].sy);
-    ctx.closePath();
-    ctx.clip();
-    ctx.filter = "invert(1) saturate(1.05)";
-    ctx.save();
-    if (mirrored) {
-      ctx.translate(cw, 0);
-      ctx.scale(-1, 1);
-    }
-    ctx.drawImage(video, map.dx, map.dy, map.vw * map.scale, map.vh * map.scale);
-    ctx.restore();
-    ctx.filter = "none";
-    ctx.restore();
   }
 
   #neon(ctx, pts) {
@@ -134,7 +138,6 @@ export class HUDRenderer {
   }
 }
 
-/** Monotone-chain convex hull so the box never crosses itself. */
 function convexHull(points) {
   if (points.length < 3) return points.slice();
   const pts = points
