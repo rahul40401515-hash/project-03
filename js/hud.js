@@ -1,16 +1,15 @@
 /**
- * Fingertip HUD: black dots, thick neon connections.
- * Negative fill is a CSS-inverted video clipped to the fingertip polygon
- * (works on iOS; canvas filter invert does not).
+ * Fingertip HUD.
+ * Neon box and negative fill share the same polygon so the invert
+ * cannot drift outside the box.
  */
 
 import { HUD } from "./config.js";
 
 export class HUDRenderer {
-  constructor(canvas, invertEl = null) {
+  constructor(canvas) {
     this.canvas = canvas;
-    this.invertEl = invertEl;
-    this.ctx = canvas.getContext("2d");
+    this.ctx = canvas.getContext("2d", { alpha: true });
     this.enabled = true;
     this.dpr = 1;
     this.resize();
@@ -58,37 +57,13 @@ export class HUDRenderer {
     this.ctx.clearRect(0, 0, this.cssW, this.cssH);
   }
 
-  setInvertClip(hull) {
-    const el = this.invertEl;
-    if (!el) return;
-    if (!hull || hull.length < 3) {
-      const empty = "polygon(0px 0px, 0px 0px, 0px 0px)";
-      el.style.clipPath = empty;
-      el.style.webkitClipPath = empty;
-      el.style.opacity = "0";
-      return;
-    }
-    const poly = `polygon(${hull
-      .map((p) => `${p.sx.toFixed(1)}px ${p.sy.toFixed(1)}px`)
-      .join(", ")})`;
-    el.style.clipPath = poly;
-    el.style.webkitClipPath = poly;
-    el.style.opacity = "1";
-  }
-
   draw({ video, mirrored, snapshot }) {
     const ctx = this.ctx;
     this.clear();
-    if (!this.enabled) {
-      this.setInvertClip(null);
-      return;
-    }
+    if (!this.enabled) return;
 
     const pts = snapshot?.points || [];
-    if (!video?.videoWidth || !pts.length) {
-      this.setInvertClip(null);
-      return;
-    }
+    if (!video?.videoWidth || !pts.length) return;
 
     const map = this.mapping(video, mirrored);
     const screen = pts.map((p) => {
@@ -96,31 +71,66 @@ export class HUDRenderer {
       return { ...p, sx: s.x, sy: s.y };
     });
 
-    const hull = convexHull(screen);
-    this.setInvertClip(hull.length >= 3 ? hull : null);
+    const poly = orderPoly(screen);
 
-    if (screen.length >= 2) {
-      this.#neon(ctx, hull.length >= 3 ? hull : screen);
+    if (poly.length >= 3) {
+      this.#negativeInside(ctx, video, mirrored, map, poly);
+      this.#neonBox(ctx, poly);
+    } else if (poly.length === 2) {
+      this.#neonBox(ctx, poly);
     }
+
     for (const p of screen) this.#dot(ctx, p);
   }
 
-  #neon(ctx, pts) {
+  #path(ctx, poly) {
+    ctx.beginPath();
+    ctx.moveTo(poly[0].sx, poly[0].sy);
+    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].sx, poly[i].sy);
+    if (poly.length >= 3) ctx.closePath();
+  }
+
+  /**
+   * Invert is clipped to an inset of the SAME polygon as the neon stroke.
+   * White + "difference" = photographic negative, works on iOS.
+   */
+  #negativeInside(ctx, video, mirrored, map, poly) {
+    const inner = insetPoly(poly, 4);
+    if (inner.length < 3) return;
+
     ctx.save();
-    ctx.lineJoin = "round";
+    this.#path(ctx, inner);
+    ctx.clip();
+
+    ctx.save();
+    if (mirrored) {
+      ctx.translate(this.cssW, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, map.dx, map.dy, map.vw * map.scale, map.vh * map.scale);
+    ctx.restore();
+
+    ctx.globalCompositeOperation = "difference";
+    ctx.fillStyle = "#ffffff";
+    this.#path(ctx, inner);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  #neonBox(ctx, poly) {
+    ctx.save();
+    ctx.lineJoin = "miter";
+    ctx.miterLimit = 3;
     ctx.lineCap = "round";
     ctx.shadowColor = HUD.neon;
-    ctx.shadowBlur = 22;
+    ctx.shadowBlur = 18;
     ctx.strokeStyle = HUD.neon;
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].sx, pts[0].sy);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].sx, pts[i].sy);
-    if (pts.length >= 3) ctx.closePath();
+    ctx.lineWidth = 6;
+    this.#path(ctx, poly);
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "#eaffff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.restore();
   }
@@ -128,7 +138,7 @@ export class HUDRenderer {
   #dot(ctx, p) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(p.sx, p.sy, 9, 0, Math.PI * 2);
+    ctx.arc(p.sx, p.sy, 8, 0, Math.PI * 2);
     ctx.fillStyle = "#000";
     ctx.fill();
     ctx.lineWidth = 2;
@@ -138,30 +148,46 @@ export class HUDRenderer {
   }
 }
 
-function convexHull(points) {
+function orderPoly(points) {
   if (points.length < 3) return points.slice();
-  const pts = points
-    .map((p) => ({ ...p }))
-    .sort((a, b) => a.sx - b.sx || a.sy - b.sy);
+  const cx = points.reduce((s, p) => s + p.sx, 0) / points.length;
+  const cy = points.reduce((s, p) => s + p.sy, 0) / points.length;
+  return [...points].sort(
+    (a, b) => Math.atan2(a.sy - cy, a.sx - cx) - Math.atan2(b.sy - cy, b.sx - cx)
+  );
+}
 
-  const cross = (o, a, b) => (a.sx - o.sx) * (b.sy - o.sy) - (a.sy - o.sy) * (b.sx - o.sx);
-
-  const lower = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
-      lower.pop();
+/** Shrink a CCW polygon so the fill sits inside the neon stroke. */
+function insetPoly(poly, dist) {
+  const n = poly.length;
+  if (n < 3) return poly;
+  const cx = poly.reduce((s, p) => s + p.sx, 0) / n;
+  const cy = poly.reduce((s, p) => s + p.sy, 0) / n;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = poly[(i + n - 1) % n];
+    const b = poly[i];
+    const c = poly[(i + 1) % n];
+    let n1x = a.sy - b.sy;
+    let n1y = b.sx - a.sx;
+    let n2x = b.sy - c.sy;
+    let n2y = c.sx - b.sx;
+    const l1 = Math.hypot(n1x, n1y) || 1;
+    const l2 = Math.hypot(n2x, n2y) || 1;
+    n1x /= l1;
+    n1y /= l1;
+    n2x /= l2;
+    n2y /= l2;
+    let nx = n1x + n2x;
+    let ny = n1y + n2y;
+    const l = Math.hypot(nx, ny) || 1;
+    nx /= l;
+    ny /= l;
+    if (nx * (cx - b.sx) + ny * (cy - b.sy) < 0) {
+      nx = -nx;
+      ny = -ny;
     }
-    lower.push(p);
+    out.push({ sx: b.sx + nx * dist, sy: b.sy + ny * dist });
   }
-  const upper = [];
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
-      upper.pop();
-    }
-    upper.push(p);
-  }
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
+  return out;
 }

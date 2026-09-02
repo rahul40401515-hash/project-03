@@ -4,9 +4,8 @@
  */
 
 export class Camera {
-  constructor(videoEl, invertEl = null) {
+  constructor(videoEl) {
     this.video = videoEl;
-    this.invert = invertEl;
     this.stream = null;
     this.facingMode = this.#defaultFacing();
     this.running = false;
@@ -59,15 +58,6 @@ export class Camera {
     this.video.setAttribute("playsinline", "true");
     this.video.classList.toggle("is-front", this.isFront());
 
-    if (this.invert) {
-      this.invert.srcObject = this.stream;
-      this.invert.playsInline = true;
-      this.invert.muted = true;
-      this.invert.setAttribute("playsinline", "true");
-      this.invert.classList.toggle("is-front", this.isFront());
-      this.invert.play().catch(() => {});
-    }
-
     await this.video.play();
     await this.#waitForData();
     this.running = true;
@@ -106,7 +96,6 @@ export class Camera {
       this.stream = null;
     }
     this.video.srcObject = null;
-    if (this.invert) this.invert.srcObject = null;
     this.running = false;
   }
 

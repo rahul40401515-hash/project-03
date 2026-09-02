@@ -19,12 +19,11 @@ const state = {
 };
 
 const video = document.getElementById("camera");
-const invertVideo = document.getElementById("camera-neg");
 const canvas = document.getElementById("hud");
-const camera = new Camera(video, invertVideo);
+const camera = new Camera(video);
 const vision = new VisionEngine();
 const tracker = new Tracker();
-const hud = new HUDRenderer(canvas, invertVideo);
+const hud = new HUDRenderer(canvas);
 
 let raf = 0;
 
