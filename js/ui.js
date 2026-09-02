@@ -1,6 +1,4 @@
-/**
- * Minimal control surface. All camera / HUD flags live on the shared `state`.
- */
+/** Minimal control surface. */
 
 export function bindControls(state, handlers) {
   const root = document.getElementById("controls");
@@ -14,10 +12,6 @@ export function bindControls(state, handlers) {
   root.addEventListener("click", (e) => {
     const btn = e.target.closest("button");
     if (!btn) return;
-    if (btn.dataset.mode) {
-      handlers.setMode(btn.dataset.mode);
-      return;
-    }
     const action = btn.dataset.action;
     if (action && handlers[action]) handlers[action]();
   });
@@ -43,20 +37,6 @@ export function bindControls(state, handlers) {
         btn.textContent = state.hudOn ? "HUD ON" : "HUD OFF";
         btn.classList.toggle("is-on", state.hudOn);
       }
-      if (a === "scan") {
-        btn.textContent = state.scanOn ? "SCAN ON" : "SCAN OFF";
-        btn.classList.toggle("is-on", state.scanOn);
-      }
-      if (a === "geometry") {
-        btn.textContent = state.geometryOn ? "GEOMETRY ON" : "GEOMETRY OFF";
-        btn.classList.toggle("is-on", state.geometryOn);
-      }
-      if (a === "flip") {
-        btn.textContent = "CAMERA SWITCH";
-      }
-    });
-    root.querySelectorAll("[data-mode]").forEach((btn) => {
-      btn.classList.toggle("is-on", btn.dataset.mode === state.mode);
     });
     root.classList.toggle("is-hidden", state.uiHidden);
     peek.textContent = state.uiHidden ? "CONTROLS" : "HIDE UI";
@@ -65,9 +45,8 @@ export function bindControls(state, handlers) {
   }
 
   function syncMeta() {
-    const names = { human: "HUMAN", face: "FACE", object: "OBJECT" };
-    metaMode.textContent = `MODE: ${names[state.mode] || "—"}`;
-    metaTrack.textContent = `TRACKING: ${state.trackStatus || "STANDBY"}`;
+    if (metaMode) metaMode.textContent = "MODE: FINGERS";
+    if (metaTrack) metaTrack.textContent = `TRACKING: ${state.trackStatus || "STANDBY"}`;
   }
 
   let toastTimer = 0;

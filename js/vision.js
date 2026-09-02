@@ -1,39 +1,43 @@
 /**
- * Browser computer vision via MediaPipe Tasks.
- * Face, pose (human), and object detectors — all run locally in WASM.
+ * Hand landmark detection (MediaPipe).
+ * Only thumb tip + index tip, and only when that finger is extended.
  */
 
 import { MEDIAPIPE } from "./config.js";
-import { detectGeometry } from "./geometry.js";
+
+const TIP = { thumb: 4, index: 8 };
+const PIP = { thumb: 3, index: 6 };
+const MCP = { thumb: 2, index: 5 };
 
 export class VisionEngine {
   constructor() {
-    this.ready = { face: false, pose: false, object: false };
-    this.faceDetector = null;
-    this.poseLandmarker = null;
-    this.objectDetector = null;
+    this.ready = { hands: false };
+    this.handLandmarker = null;
     this.fileset = null;
-    this.lastVideoTime = -1;
+    this.mp = null;
     this.lastMediaTime = -1;
-    this._objectLoading = null;
   }
 
   async init(onProgress = () => {}) {
     const visionMod = await import(MEDIAPIPE.visionBundle);
     this.mp = visionMod;
-    onProgress(0.22, "LOADING VISION RUNTIME");
+    onProgress(0.25, "LOADING VISION RUNTIME");
 
     this.fileset = await visionMod.FilesetResolver.forVisionTasks(MEDIAPIPE.wasm);
-    onProgress(0.4, "RESOLVING MODELS");
+    onProgress(0.5, "LOADING HAND MODEL");
 
-    const results = await Promise.allSettled([this.#loadFace(), this.#loadPose()]);
-    results.forEach((r) => {
-      if (r.status === "rejected") console.warn("Model load failed", r.reason);
-    });
-    if (!this.ready.face && !this.ready.pose) {
-      console.warn("MediaPipe detectors unavailable — geometry mode still works.");
-    }
-    onProgress(0.82, "CALIBRATING TRACKERS");
+    this.handLandmarker = await this.#withDelegate((delegate) =>
+      this.mp.HandLandmarker.createFromOptions(this.fileset, {
+        baseOptions: { modelAssetPath: MEDIAPIPE.handModel, delegate },
+        runningMode: "VIDEO",
+        numHands: 2,
+        minHandDetectionConfidence: 0.55,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      })
+    );
+    this.ready.hands = true;
+    onProgress(0.9, "CALIBRATING FINGERS");
   }
 
   async #withDelegate(factory) {
@@ -44,191 +48,63 @@ export class VisionEngine {
     }
   }
 
-  async #loadFace() {
-    this.faceDetector = await this.#withDelegate((delegate) =>
-      this.mp.FaceDetector.createFromOptions(this.fileset, {
-        baseOptions: { modelAssetPath: MEDIAPIPE.faceModel, delegate },
-        runningMode: "VIDEO",
-        minDetectionConfidence: 0.45,
-      })
-    );
-    this.ready.face = true;
-  }
-
-  async #loadPose() {
-    this.poseLandmarker = await this.#withDelegate((delegate) =>
-      this.mp.PoseLandmarker.createFromOptions(this.fileset, {
-        baseOptions: { modelAssetPath: MEDIAPIPE.poseModel, delegate },
-        runningMode: "VIDEO",
-        numPoses: 2,
-        minPoseDetectionConfidence: 0.4,
-        minPosePresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      })
-    );
-    this.ready.pose = true;
-  }
-
-  async ensureObjectDetector() {
-    if (this.objectDetector) return;
-    if (this._objectLoading) return this._objectLoading;
-    this._objectLoading = (async () => {
-      try {
-        this.objectDetector = await this.#withDelegate((delegate) =>
-          this.mp.ObjectDetector.createFromOptions(this.fileset, {
-            baseOptions: { modelAssetPath: MEDIAPIPE.objectModel, delegate },
-            runningMode: "VIDEO",
-            scoreThreshold: 0.35,
-            maxResults: 5,
-          })
-        );
-        this.ready.object = true;
-      } catch (err) {
-        console.warn("Object detector unavailable", err);
-      }
-    })();
-    return this._objectLoading;
-  }
-
   /**
-   * Run the active mode against the current video frame.
-   * Returns detections in video-pixel space.
+   * Returns extended thumb/index tips in video-pixel space.
+   * @returns {Array|null} null = same video frame as last call
    */
-  detect(video, mode, timestampMs) {
-    if (!video.videoWidth) return [];
-    // Skip duplicate camera frames; MediaPipe still needs a rising timestamp.
+  detectFingers(video, timestampMs) {
+    if (!video.videoWidth || !this.handLandmarker) return [];
     if (video.currentTime === this.lastMediaTime) return null;
     this.lastMediaTime = video.currentTime;
-    const t = timestampMs;
 
     try {
-      if (mode === "face" && this.faceDetector) {
-        const res = this.faceDetector.detectForVideo(video, t);
-        return this.#fromFaces(res, video);
-      }
-      if (mode === "human" && this.poseLandmarker) {
-        const res = this.poseLandmarker.detectForVideo(video, t);
-        return this.#fromPose(res, video);
-      }
-      if (mode === "object") {
-        return this.#fromObjects(video, t);
-      }
+      const res = this.handLandmarker.detectForVideo(video, timestampMs);
+      return this.#fromHands(res, video);
     } catch (err) {
-      // GPU delegate can throw on a single frame; skip it.
-      console.warn("detect frame skipped", err);
+      console.warn("hand frame skipped", err);
+      return [];
     }
-    return [];
   }
 
-  #fromFaces(res, video) {
-    const dets = res?.detections || [];
-    return dets.map((d) => {
-      const bb = d.boundingBox;
-      const score = d.categories?.[0]?.score ?? 0.7;
-      return {
-        type: "FACE",
-        label: "HUMAN FACE",
-        x: bb.originX,
-        y: bb.originY,
-        w: bb.width,
-        h: bb.height,
-        confidence: score,
-        angle: 0,
-        keypoints: (d.keypoints || []).map((k) => ({
-          x: k.x * video.videoWidth,
-          y: k.y * video.videoHeight,
-        })),
-        source: "face",
-      };
-    });
-  }
-
-  #fromPose(res, video) {
-    const poses = res?.landmarks || [];
+  #fromHands(res, video) {
+    const hands = res?.landmarks || [];
+    const handed = res?.handedness || [];
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    return poses.map((lm) => {
-      const pts = lm.map((p) => ({
-        x: p.x * vw,
-        y: p.y * vh,
-        v: p.visibility ?? 1,
-      }));
-      const visible = pts.filter((p) => p.v > 0.35);
-      if (visible.length < 4) return null;
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of visible) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      }
-      const padX = (maxX - minX) * 0.12;
-      const padY = (maxY - minY) * 0.12;
-      const lShoulder = pts[11];
-      const rShoulder = pts[12];
-      let angle = 0;
-      if (lShoulder && rShoulder) {
-        angle = (Math.atan2(rShoulder.y - lShoulder.y, rShoulder.x - lShoulder.x) * 180) / Math.PI;
-      }
-      const avgV = visible.reduce((s, p) => s + p.v, 0) / visible.length;
-      return {
-        type: "HUMAN",
-        label: "HUMAN",
-        x: minX - padX,
-        y: minY - padY,
-        w: maxX - minX + padX * 2,
-        h: maxY - minY + padY * 2,
-        confidence: avgV,
-        angle,
-        hasAngle: true,
-        keypoints: pts,
-        source: "pose",
-      };
-    }).filter(Boolean);
-  }
+    const out = [];
 
-  #fromObjects(video, t) {
-    const geo = detectGeometry(video);
-    let coco = [];
-    if (this.objectDetector) {
-      try {
-        const res = this.objectDetector.detectForVideo(video, t);
-        coco = (res?.detections || []).map((d) => {
-          const bb = d.boundingBox;
-          const cat = d.categories?.[0];
-          return {
-            type: "OBJECT",
-            label: (cat?.categoryName || "OBJECT").toUpperCase(),
-            x: bb.originX,
-            y: bb.originY,
-            w: bb.width,
-            h: bb.height,
-            confidence: cat?.score ?? 0.5,
-            angle: 0,
-            keypoints: [],
-            source: "coco",
-          };
+    for (let i = 0; i < hands.length; i++) {
+      const lm = hands[i];
+      let side = (handed[i]?.[0]?.categoryName || "Right").toUpperCase();
+      if (side !== "LEFT" && side !== "RIGHT") side = "RIGHT";
+      const score = handed[i]?.[0]?.score ?? 0.7;
+
+      for (const finger of ["thumb", "index"]) {
+        if (!isExtended(lm, finger)) continue;
+        const tip = lm[TIP[finger]];
+        if (!tip) continue;
+        out.push({
+          id: `${side}-${finger.toUpperCase()}`,
+          hand: side,
+          finger: finger.toUpperCase(),
+          x: tip.x * vw,
+          y: tip.y * vh,
+          confidence: score,
         });
-      } catch {
-        /* skip frame */
       }
     }
-    // Prefer named COCO hits; keep geometry if it doesn't heavily overlap.
-    const merged = [...coco];
-    for (const g of geo) {
-      const overlaps = merged.some((o) => iou(o, g) > 0.45);
-      if (!overlaps) merged.push(g);
-    }
-    return merged.slice(0, 5);
+    return out;
   }
 }
 
-function iou(a, b) {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w);
-  const y2 = Math.min(a.y + a.h, b.y + b.h);
-  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-  const union = a.w * a.h + b.w * b.h - inter;
-  return union <= 0 ? 0 : inter / union;
+function isExtended(lm, finger) {
+  const tip = lm[TIP[finger]];
+  const pip = lm[PIP[finger]];
+  const mcp = lm[MCP[finger]];
+  if (!tip || !pip || !mcp) return false;
+  const tipDist = Math.hypot(tip.x - mcp.x, tip.y - mcp.y);
+  const pipDist = Math.hypot(pip.x - mcp.x, pip.y - mcp.y);
+  if (pipDist < 1e-5) return false;
+  const ratio = finger === "thumb" ? 1.05 : 1.12;
+  return tipDist > pipDist * ratio;
 }

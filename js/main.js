@@ -1,28 +1,21 @@
 /**
- * PROJECT 02 — Visual Analysis System
- * Detection: existing MediaPipe engine (vision.js) — unchanged pipeline.
- * This file wires tracking, geometry overlay, and HUD animation.
- * Camera frames never leave this device.
+ * PROJECT 03 — fingertip visual analysis.
+ * Tracks left/right thumb + index only. No object boxes.
  */
 
 import { playBootSequence, setBootProgress, logBoot, unlockStart, dismissBoot } from "./boot.js";
 import { Camera } from "./camera.js";
 import { VisionEngine } from "./vision.js";
-import { detectGeometry, mergeDetections } from "./geometry.js";
 import { Tracker } from "./tracker.js";
 import { HUDRenderer } from "./hud.js";
 import { bindControls } from "./ui.js";
 
 const state = {
-  mode: "human",
   cameraOn: false,
   trackingOn: true,
   hudOn: true,
-  scanOn: true,
-  geometryOn: true,
   uiHidden: false,
   trackStatus: "STANDBY",
-  started: false,
 };
 
 const video = document.getElementById("camera");
@@ -32,33 +25,20 @@ const vision = new VisionEngine();
 const tracker = new Tracker();
 const hud = new HUDRenderer(canvas);
 
-let lastEvent = null;
 let raf = 0;
 
 const ui = bindControls(state, {
   camera: toggleCamera,
   tracking: () => {
     state.trackingOn = !state.trackingOn;
-    if (!state.trackingOn) {
-      tracker.reset();
-      state.trackStatus = "OFF";
-    }
+    if (!state.trackingOn) tracker.reset();
+    state.trackStatus = state.trackingOn ? "STANDBY" : "OFF";
     ui.syncButtons();
     ui.syncMeta();
   },
   hud: () => {
     state.hudOn = !state.hudOn;
     hud.enabled = state.hudOn;
-    ui.syncButtons();
-  },
-  scan: () => {
-    state.scanOn = !state.scanOn;
-    hud.scanEnabled = state.scanOn;
-    ui.syncButtons();
-  },
-  geometry: () => {
-    state.geometryOn = !state.geometryOn;
-    hud.geometryOn = state.geometryOn;
     ui.syncButtons();
   },
   flip: async () => {
@@ -71,25 +51,9 @@ const ui = bindControls(state, {
     }
   },
   fullscreen: toggleFullscreen,
-  reset: () => {
-    tracker.reset();
-    state.trackStatus = state.cameraOn ? "SEARCHING" : "STANDBY";
-    ui.syncMeta();
-  },
   hide: () => {
     state.uiHidden = !state.uiHidden;
     ui.syncButtons();
-  },
-  setMode: async (mode) => {
-    state.mode = mode;
-    tracker.reset();
-    ui.syncButtons();
-    ui.syncMeta();
-    if (mode === "object") {
-      ui.showToast("LOADING OBJECT MODEL");
-      await vision.ensureObjectDetector();
-      ui.showToast("MODE 03 OBJECT");
-    }
   },
 });
 
@@ -99,30 +63,23 @@ async function main() {
   if (!navigator.mediaDevices?.getUserMedia) {
     setBootProgress(100, "CAMERA API UNAVAILABLE");
     logBoot("SYSTEM FAULT");
-    document.getElementById("boot-status").textContent = "THIS BROWSER CANNOT ACCESS A CAMERA";
     return;
   }
 
   try {
-    setBootProgress(18, "INITIALIZING…");
-    await vision.init((pct, msg) => {
-      setBootProgress(Math.round(pct * 100), msg);
-    });
-    setBootProgress(90, "SYSTEM ONLINE");
+    setBootProgress(20, "INITIALIZING…");
+    await vision.init((pct, msg) => setBootProgress(Math.round(pct * 100), msg));
     logBoot("SYSTEM ONLINE");
-    await wait(280);
+    await wait(220);
     logBoot("CAMERA READY");
-    setBootProgress(96, "CAMERA READY");
-    await wait(280);
-    logBoot("ANALYSIS READY");
-    setBootProgress(100, "ANALYSIS READY");
-    await wait(200);
+    await wait(220);
+    logBoot("FINGER TRACKING READY");
+    setBootProgress(100, "TRACKING READY");
     unlockStart();
   } catch (err) {
     console.error(err);
-    setBootProgress(100, "VISION RUNTIME FAILED");
-    logBoot("FALLBACK: GEOMETRY TRACKER ONLY");
-    unlockStart();
+    setBootProgress(100, "HAND MODEL FAILED");
+    logBoot("UNABLE TO LOAD HAND TRACKER");
   }
 
   document.getElementById("start-btn").addEventListener("click", onStart);
@@ -133,9 +90,8 @@ async function onStart() {
   btn.disabled = true;
   btn.querySelector("span").textContent = "REQUESTING CAMERA";
   try {
-    await camera.start();
+    await camera.start("user");
     state.cameraOn = true;
-    state.started = true;
     document.getElementById("stage").hidden = false;
     await dismissBoot();
     ui.syncButtons();
@@ -146,7 +102,7 @@ async function onStart() {
     btn.querySelector("span").textContent = "START VISION";
     ui.showError(
       friendlyCameraError(err) +
-        " Grant camera permission and retry. Nothing is uploaded — processing stays on this device."
+        " Grant camera permission and retry. Processing stays on this device."
     );
   }
 }
@@ -157,7 +113,6 @@ async function toggleCamera() {
     await camera.stop();
     state.cameraOn = false;
     tracker.reset();
-    state.trackStatus = "STANDBY";
     hud.clear();
     ui.syncButtons();
     ui.syncMeta();
@@ -180,38 +135,20 @@ function loop() {
   const tick = () => {
     raf = requestAnimationFrame(tick);
     const now = performance.now();
-
     hud.enabled = state.hudOn;
-    hud.scanEnabled = state.scanOn;
-    hud.geometryOn = state.geometryOn;
 
     if (state.cameraOn && camera.running && state.trackingOn && video.readyState >= 2) {
-      let dets = vision.detect(video, state.mode, now);
-      if (dets !== null && state.geometryOn && state.mode !== "object") {
-        dets = mergeDetections(dets, detectGeometry(video));
-      }
+      const dets = vision.detectFingers(video, now);
       const snap = tracker.update(dets, now);
-      state.trackStatus = snap.phase || snap.status;
-      if (snap.event && snap.event !== lastEvent) ui.showToast(snap.event);
-      lastEvent = snap.event;
+      state.trackStatus = snap.status;
       ui.syncMeta();
       hud.draw({
         video,
         mirrored: camera.isFront(),
-        mode: state.mode,
         snapshot: snap,
-        now,
-        cameraOn: true,
       });
     } else {
-      hud.draw({
-        video,
-        mirrored: camera.isFront(),
-        mode: state.mode,
-        snapshot: { tracks: [], primary: null, status: state.trackStatus, phase: state.trackStatus },
-        now,
-        cameraOn: state.cameraOn,
-      });
+      hud.clear();
     }
   };
   tick();
@@ -220,8 +157,7 @@ function loop() {
 function toggleFullscreen() {
   const el = document.documentElement;
   if (!document.fullscreenElement) {
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    req?.call(el);
+    (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
   } else {
     document.exitFullscreen?.();
   }
