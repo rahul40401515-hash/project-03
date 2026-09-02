@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>PROJECT 01 — Vision Tracking System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <!-- Boot / landing -->
+    <section id="boot" class="boot" aria-live="polite">
+      <div class="boot__frame boot__frame--tl"></div>
+      <div class="boot__frame boot__frame--tr"></div>
+      <div class="boot__frame boot__frame--bl"></div>
+      <div class="boot__frame boot__frame--br"></div>
+
+      <div class="boot__inner">
+        <p class="boot__kicker" data-boot="kicker">EXPERIMENTAL LABORATORY</p>
+        <h1 class="boot__title" data-boot="title">PROJECT 01</h1>
+        <p class="boot__subtitle" data-boot="subtitle">VISION SYSTEM</p>
+        <div class="boot__rule" data-boot="rule"></div>
+
+        <p class="boot__status" id="boot-status">INITIALIZING…</p>
+        <div class="boot__bar" data-boot="bar">
+          <span class="boot__bar-fill" id="boot-bar"></span>
+        </div>
+
+        <ul class="boot__log" id="boot-log"></ul>
+
+        <button id="start-btn" class="boot__cta" disabled>
+          <span>START VISION</span>
+        </button>
+
+        <p class="boot__privacy">VIDEO PROCESSING OCCURS LOCALLY ON THIS DEVICE.</p>
+      </div>
+    </section>
+
+    <!-- Live vision stage -->
+    <section id="stage" class="stage" hidden>
+      <video id="camera" class="stage__video" playsinline muted autoplay></video>
+      <canvas id="hud" class="stage__hud"></canvas>
+      <div class="stage__grain" aria-hidden="true"></div>
+
+      <header class="chrome chrome--top">
+        <p class="chrome__title">PROJECT 01</p>
+        <p class="chrome__sub">VISION TRACKING SYSTEM</p>
+      </header>
+
+      <div id="toast" class="toast" hidden></div>
+
+      <aside class="chrome chrome--meta" id="meta-panel">
+        <p id="meta-mode">MODE: —</p>
+        <p id="meta-track">TRACKING: STANDBY</p>
+        <p id="meta-privacy">VIDEO PROCESSING OCCURS LOCALLY ON THIS DEVICE.</p>
+      </aside>
+
+      <button id="toggle-ui" class="chrome__peek" title="Show or hide controls" aria-label="Toggle controls">
+        CONTROLS
+      </button>
+
+      <nav id="controls" class="controls" aria-label="Vision controls">
+        <div class="controls__row">
+          <button data-action="camera" class="ctrl is-on">STOP CAMERA</button>
+          <button data-action="tracking" class="ctrl is-on">TRACKING ON</button>
+          <button data-action="hud" class="ctrl is-on">HUD ON</button>
+          <button data-action="scan" class="ctrl is-on">SCAN ON</button>
+        </div>
+        <div class="controls__row">
+          <button data-mode="human" class="ctrl ctrl--mode is-on">MODE 01 HUMAN</button>
+          <button data-mode="face" class="ctrl ctrl--mode">MODE 02 FACE</button>
+          <button data-mode="object" class="ctrl ctrl--mode">MODE 03 OBJECT</button>
+        </div>
+        <div class="controls__row">
+          <button data-action="flip" class="ctrl">FLIP CAMERA</button>
+          <button data-action="fullscreen" class="ctrl">FULLSCREEN</button>
+          <button data-action="reset" class="ctrl">RESET</button>
+          <button data-action="hide" class="ctrl">HIDE</button>
+        </div>
+      </nav>
+    </section>
+
+    <div id="error-overlay" class="error-overlay" hidden>
+      <div class="error-overlay__box">
+        <p class="error-overlay__title">CAMERA UNAVAILABLE</p>
+        <p class="error-overlay__body" id="error-text"></p>
+        <button id="error-retry" class="boot__cta">RETRY</button>
+      </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
