@@ -73,13 +73,15 @@ async function main() {
     await wait(220);
     logBoot("CAMERA READY");
     await wait(220);
-    logBoot("FINGER TRACKING READY");
+    logBoot(vision.backend === "hands" ? "HAND ENGINE READY" : "TRACKING READY");
     setBootProgress(100, "TRACKING READY");
     unlockStart();
   } catch (err) {
     console.error(err);
     setBootProgress(100, "HAND MODEL FAILED");
     logBoot("UNABLE TO LOAD HAND TRACKER");
+    const detail = String(err?.message || err).slice(0, 80);
+    if (detail) logBoot(detail.toUpperCase());
   }
 
   document.getElementById("start-btn").addEventListener("click", onStart);
