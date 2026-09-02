@@ -1,4 +1,4 @@
-/** Tunable constants for PROJECT 01. */
+/** Tunable constants for PROJECT 02 — Visual Analysis. */
 
 export const MODES = {
   human: { id: "HUMAN", label: "MODE 01 — HUMAN" },
@@ -18,30 +18,35 @@ export const MEDIAPIPE = {
 };
 
 export const TRACK = {
-  lerpPos: 0.28,
-  lerpSize: 0.18,
-  lostMs: 700,
+  lerpPos: 0.22,
+  lerpSize: 0.14,
+  lerpLocked: 0.12,
+  lostMs: 720,
   restoreToastMs: 900,
   lostToastMs: 1100,
   minConfidence: 0.35,
   iouMatch: 0.28,
+  detectMs: 280,
+  acquireMs: 700,
+  lockMs: 1400,
+  stillPxS: 22,
 };
 
 export const HUD = {
-  line: "rgba(244,244,241,0.88)",
-  dim: "rgba(244,244,241,0.38)",
+  line: "rgba(244,244,241,0.9)",
+  dim: "rgba(244,244,241,0.4)",
   faint: "rgba(244,244,241,0.16)",
-  accent: "rgba(186,220,235,0.9)",
-  scan: "rgba(244,244,241,0.55)",
-  bracketLenRatio: 0.18,
-  bracketMin: 14,
-  bracketMax: 42,
-  scanPeriod: 4200,
+  accent: "rgba(186,220,235,0.88)",
+  scan: "rgba(244,244,241,0.5)",
+  bracketLenRatio: 0.16,
+  bracketMin: 16,
+  bracketMax: 38,
+  scanPeriod: 4600,
 };
 
 export const GEOMETRY = {
-  sampleW: 176,
-  minAreaRatio: 0.012,
-  maxAreaRatio: 0.62,
-  edgeThreshold: 38,
+  sampleW: 192,
+  minAreaRatio: 0.01,
+  maxAreaRatio: 0.58,
+  edgeThreshold: 36,
 };

@@ -1,36 +1,39 @@
-# PROJECT 01 — Vision Tracking System
+# PROJECT 02 — Visual Analysis System
 
-Experimental in-browser computer-vision laboratory.
+Experimental in-browser computer-vision HUD.
 
-Live camera + real object / face / body tracking + a cinematic HUD.  
+Live camera + existing MediaPipe face / body / object detection + a cinematic analysis overlay.  
 All video processing runs **locally in the browser**. Nothing is uploaded.
 
 ## Run
-
-Serve the folder over HTTPS (or localhost):
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Then open `http://localhost:8080`.
+Open `http://localhost:8080`.
 
-1. Wait for **TRACKING READY**
+1. Wait for **ANALYSIS READY**
 2. Click **START VISION**
 3. Allow camera access
 
+## What is new
+
+PROJECT 02 keeps the original detection engine and adds:
+
+- Separated L-brackets that follow real tracks
+- Live X/Y/W/H/confidence from detections
+- Lock sequence: SCANNING → TARGET DETECTED → TARGET ACQUIRED → TRACKING LOCKED
+- Speed / direction from consecutive frames
+- Geometry mode: paper/card quad corners, width, height, rotation, perspective
+- Real frame counter and FPS
+
 ## Modes
 
-| Mode | What it tracks |
+| Mode | Detector |
 | --- | --- |
-| MODE 01 HUMAN | Body pose (MediaPipe) |
-| MODE 02 FACE | Faces |
-| MODE 03 OBJECT | COCO objects + geometric / high-contrast shapes |
+| HUMAN | MediaPipe pose |
+| FACE | MediaPipe face |
+| OBJECT | COCO + local geometry |
 
-## Stack
-
-- HTML / CSS / JavaScript
-- MediaDevices camera API
-- MediaPipe Tasks Vision (WASM)
-- Canvas HUD overlay
-- Local contour / contrast detector for MODE 03
+GEOMETRY can be toggled on top of any mode so a person and a sheet of paper can be tracked together.

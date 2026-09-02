@@ -180,6 +180,7 @@ export class VisionEngine {
         h: maxY - minY + padY * 2,
         confidence: avgV,
         angle,
+        hasAngle: true,
         keypoints: pts,
         source: "pose",
       };

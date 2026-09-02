@@ -1,12 +1,14 @@
 /**
- * PROJECT 01 — Vision Tracking System
- * Orchestrates boot, camera, local CV, tracking, and HUD.
+ * PROJECT 02 — Visual Analysis System
+ * Detection: existing MediaPipe engine (vision.js) — unchanged pipeline.
+ * This file wires tracking, geometry overlay, and HUD animation.
  * Camera frames never leave this device.
  */
 
 import { playBootSequence, setBootProgress, logBoot, unlockStart, dismissBoot } from "./boot.js";
 import { Camera } from "./camera.js";
 import { VisionEngine } from "./vision.js";
+import { detectGeometry, mergeDetections } from "./geometry.js";
 import { Tracker } from "./tracker.js";
 import { HUDRenderer } from "./hud.js";
 import { bindControls } from "./ui.js";
@@ -17,6 +19,7 @@ const state = {
   trackingOn: true,
   hudOn: true,
   scanOn: true,
+  geometryOn: true,
   uiHidden: false,
   trackStatus: "STANDBY",
   started: false,
@@ -29,7 +32,6 @@ const vision = new VisionEngine();
 const tracker = new Tracker();
 const hud = new HUDRenderer(canvas);
 
-let lastDetections = [];
 let lastEvent = null;
 let raf = 0;
 
@@ -54,19 +56,23 @@ const ui = bindControls(state, {
     hud.scanEnabled = state.scanOn;
     ui.syncButtons();
   },
+  geometry: () => {
+    state.geometryOn = !state.geometryOn;
+    hud.geometryOn = state.geometryOn;
+    ui.syncButtons();
+  },
   flip: async () => {
     if (!state.cameraOn) return;
     try {
       await camera.flip();
       tracker.reset();
     } catch (err) {
-      ui.showError(err.message || "Unable to flip camera.");
+      ui.showError(err.message || "Unable to switch camera.");
     }
   },
   fullscreen: toggleFullscreen,
   reset: () => {
     tracker.reset();
-    lastDetections = [];
     state.trackStatus = state.cameraOn ? "SEARCHING" : "STANDBY";
     ui.syncMeta();
   },
@@ -77,7 +83,6 @@ const ui = bindControls(state, {
   setMode: async (mode) => {
     state.mode = mode;
     tracker.reset();
-    lastDetections = [];
     ui.syncButtons();
     ui.syncMeta();
     if (mode === "object") {
@@ -109,8 +114,8 @@ async function main() {
     logBoot("CAMERA READY");
     setBootProgress(96, "CAMERA READY");
     await wait(280);
-    logBoot("TRACKING READY");
-    setBootProgress(100, "TRACKING READY");
+    logBoot("ANALYSIS READY");
+    setBootProgress(100, "ANALYSIS READY");
     await wait(200);
     unlockStart();
   } catch (err) {
@@ -178,15 +183,16 @@ function loop() {
 
     hud.enabled = state.hudOn;
     hud.scanEnabled = state.scanOn;
+    hud.geometryOn = state.geometryOn;
 
     if (state.cameraOn && camera.running && state.trackingOn && video.readyState >= 2) {
-      const dets = vision.detect(video, state.mode, now);
-      if (dets !== null) lastDetections = dets;
-      const snap = tracker.update(dets, now);
-      state.trackStatus = snap.status;
-      if (snap.event && snap.event !== lastEvent) {
-        ui.showToast(snap.event);
+      let dets = vision.detect(video, state.mode, now);
+      if (dets !== null && state.geometryOn && state.mode !== "object") {
+        dets = mergeDetections(dets, detectGeometry(video));
       }
+      const snap = tracker.update(dets, now);
+      state.trackStatus = snap.phase || snap.status;
+      if (snap.event && snap.event !== lastEvent) ui.showToast(snap.event);
       lastEvent = snap.event;
       ui.syncMeta();
       hud.draw({
@@ -202,7 +208,7 @@ function loop() {
         video,
         mirrored: camera.isFront(),
         mode: state.mode,
-        snapshot: { tracks: [], primary: null, status: state.trackStatus },
+        snapshot: { tracks: [], primary: null, status: state.trackStatus, phase: state.trackStatus },
         now,
         cameraOn: state.cameraOn,
       });

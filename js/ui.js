@@ -47,6 +47,13 @@ export function bindControls(state, handlers) {
         btn.textContent = state.scanOn ? "SCAN ON" : "SCAN OFF";
         btn.classList.toggle("is-on", state.scanOn);
       }
+      if (a === "geometry") {
+        btn.textContent = state.geometryOn ? "GEOMETRY ON" : "GEOMETRY OFF";
+        btn.classList.toggle("is-on", state.geometryOn);
+      }
+      if (a === "flip") {
+        btn.textContent = "CAMERA SWITCH";
+      }
     });
     root.querySelectorAll("[data-mode]").forEach((btn) => {
       btn.classList.toggle("is-on", btn.dataset.mode === state.mode);
