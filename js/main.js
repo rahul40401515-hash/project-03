@@ -154,6 +154,7 @@ function loop() {
 
     if (state.cameraOn && camera.running && state.trackingOn && video.readyState >= 2) {
       const dets = vision.detectFingers(video, now);
+      if (state.xrayOn) pose.tick(video);
       const snap = tracker.update(dets, now);
       state.trackStatus = snap.status;
       ui.syncMeta();
@@ -161,6 +162,8 @@ function loop() {
         video,
         mirrored: camera.isFront(),
         snapshot: snap,
+        xray: state.xrayOn,
+        pose: state.xrayOn ? pose.landmarks : null,
       });
     } else {
       hud.clear();

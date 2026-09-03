@@ -144,6 +144,68 @@ export class HUDRenderer {
     }) : null;
 
     if (bones) this.#drawSkeleton(ctx, bones);
+    else this.#drawSchematicBones(ctx, inner);
+    ctx.restore();
+  }
+
+  #drawSchematicBones(ctx, poly) {
+    const xs = poly.map((p) => p.sx);
+    const ys = poly.map((p) => p.sy);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const w = Math.max(...xs) - x;
+    const h = Math.max(...ys) - y;
+    if (w < 20 || h < 20) return;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(w, h);
+    ctx.strokeStyle = "rgba(230, 244, 255, 0.95)";
+    ctx.fillStyle = "rgba(230, 244, 255, 0.9)";
+    ctx.shadowColor = "rgba(160, 220, 255, 0.9)";
+    ctx.shadowBlur = 0.02;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const line = (x1, y1, x2, y2, width) => {
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    };
+
+    ctx.lineWidth = 0.018;
+    ctx.beginPath();
+    ctx.ellipse(0.5, 0.13, 0.11, 0.12, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    line(0.5, 0.25, 0.5, 0.62, 0.028);
+
+    ctx.lineWidth = 0.012;
+    for (let i = 0; i < 6; i++) {
+      const cy = 0.28 + i * 0.045;
+      const rw = 0.22 - i * 0.018;
+      ctx.beginPath();
+      ctx.ellipse(0.5, cy, rw, 0.018, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.lineWidth = 0.016;
+    ctx.beginPath();
+    ctx.ellipse(0.5, 0.64, 0.14, 0.05, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    line(0.28, 0.30, 0.12, 0.48, 0.022);
+    line(0.12, 0.48, 0.08, 0.66, 0.018);
+    line(0.72, 0.30, 0.88, 0.48, 0.022);
+    line(0.88, 0.48, 0.92, 0.66, 0.018);
+
+    line(0.42, 0.68, 0.38, 0.86, 0.024);
+    line(0.38, 0.86, 0.36, 0.98, 0.018);
+    line(0.58, 0.68, 0.62, 0.86, 0.024);
+    line(0.62, 0.86, 0.64, 0.98, 0.018);
+
     ctx.restore();
   }
 
