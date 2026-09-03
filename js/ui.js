@@ -37,6 +37,10 @@ export function bindControls(state, handlers) {
         btn.textContent = state.hudOn ? "HUD ON" : "HUD OFF";
         btn.classList.toggle("is-on", state.hudOn);
       }
+      if (a === "xray") {
+        btn.textContent = state.xrayOn ? "X-RAY ON" : "X-RAY MODE";
+        btn.classList.toggle("is-on", state.xrayOn);
+      }
     });
     root.classList.toggle("is-hidden", state.uiHidden);
     peek.textContent = state.uiHidden ? "CONTROLS" : "HIDE UI";
@@ -45,7 +49,7 @@ export function bindControls(state, handlers) {
   }
 
   function syncMeta() {
-    if (metaMode) metaMode.textContent = "MODE: FINGERS";
+    if (metaMode) metaMode.textContent = state.xrayOn ? "MODE: X-RAY" : "MODE: FINGERS";
     if (metaTrack) metaTrack.textContent = `TRACKING: ${state.trackStatus || "STANDBY"}`;
   }
 

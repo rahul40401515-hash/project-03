@@ -8,12 +8,14 @@ import { Camera } from "./camera.js";
 import { VisionEngine } from "./vision.js";
 import { Tracker } from "./tracker.js";
 import { HUDRenderer } from "./hud.js";
+import { PoseEngine } from "./pose.js";
 import { bindControls } from "./ui.js";
 
 const state = {
   cameraOn: false,
   trackingOn: true,
   hudOn: true,
+  xrayOn: false,
   uiHidden: false,
   trackStatus: "STANDBY",
 };
@@ -24,6 +26,7 @@ const camera = new Camera(video);
 const vision = new VisionEngine();
 const tracker = new Tracker();
 const hud = new HUDRenderer(canvas);
+const pose = new PoseEngine();
 
 let raf = 0;
 
@@ -40,6 +43,12 @@ const ui = bindControls(state, {
     state.hudOn = !state.hudOn;
     hud.enabled = state.hudOn;
     ui.syncButtons();
+  },
+  xray: () => {
+    state.xrayOn = !state.xrayOn;
+    ui.syncButtons();
+    ui.syncMeta();
+    ui.showToast(state.xrayOn ? "X-RAY MODE" : "INVERT MODE");
   },
   flip: async () => {
     if (!state.cameraOn) return;
@@ -76,6 +85,10 @@ async function main() {
     logBoot(vision.backend === "hands" ? "HAND ENGINE READY" : "TRACKING READY");
     setBootProgress(100, "TRACKING READY");
     unlockStart();
+    pose.init().then(() => logBoot("X-RAY SKELETON READY")).catch((err) => {
+      console.warn(err);
+      logBoot("X-RAY SKELETON OFF");
+    });
   } catch (err) {
     console.error(err);
     setBootProgress(100, "HAND MODEL FAILED");
