@@ -22,6 +22,7 @@ export class VisionEngine {
     this.hands = null;
     this.handLandmarker = null;
     this.cached = [];
+    this.handBounds = [];
     this.fresh = false;
     this.busy = false;
     this.lastMediaTime = -1;
@@ -74,7 +75,10 @@ export class VisionEngine {
           minTrackingConfidence: 0.5,
         });
         hands.onResults((results) => {
-          this.cached = this.#fromLegacy(results, this._vw || 1, this._vh || 1);
+          const vw = this._vw || 1;
+          const vh = this._vh || 1;
+          this.cached = this.#fromLegacy(results, vw, vh);
+          this.handBounds = this.#boundsFromLegacy(results, vw, vh);
           this.fresh = true;
         });
         if (typeof hands.initialize === "function") {
@@ -143,7 +147,9 @@ export class VisionEngine {
       this.lastMediaTime = video.currentTime;
       try {
         const res = this.handLandmarker.detectForVideo(video, timestampMs);
-        return this.#fromTasks(res, video);
+        const tips = this.#fromTasks(res, video);
+        this.handBounds = this.#boundsFromTasks(res, video);
+        return tips;
       } catch (err) {
         console.warn("detect frame skipped", err);
         return [];
@@ -179,6 +185,18 @@ export class VisionEngine {
     return out;
   }
 
+  #boundsFromLegacy(results, vw, vh) {
+    const hands = results?.multiHandLandmarks || [];
+    return hands.map((lm) => boundsOf(lm, vw, vh));
+  }
+
+  #boundsFromTasks(res, video) {
+    const hands = res?.landmarks || [];
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    return hands.map((lm) => boundsOf(lm, vw, vh));
+  }
+
   #fromTasks(res, video) {
     const hands = res?.landmarks || [];
     const handed = res?.handedness || [];
@@ -206,6 +224,23 @@ export class VisionEngine {
     }
     return out;
   }
+}
+
+function boundsOf(lm, vw, vh) {
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (const p of lm) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  const pad = 0.1;
+  return {
+    x: (minX - pad) * vw,
+    y: (minY - pad) * vh,
+    w: (maxX - minX + pad * 2) * vw,
+    h: (maxY - minY + pad * 2) * vh,
+  };
 }
 
 function isExtended(lm, finger) {

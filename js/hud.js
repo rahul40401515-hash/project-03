@@ -57,7 +57,7 @@ export class HUDRenderer {
     this.ctx.clearRect(0, 0, this.cssW, this.cssH);
   }
 
-  draw({ video, mirrored, snapshot }) {
+  draw({ video, mirrored, snapshot, screenSource = null }) {
     const ctx = this.ctx;
     this.clear();
     if (!this.enabled) return;
@@ -74,7 +74,7 @@ export class HUDRenderer {
     const poly = orderPoly(screen);
 
     if (poly.length >= 3) {
-      this.#negativeInside(ctx, video, mirrored, map, poly);
+      this.#negativeInside(ctx, video, mirrored, map, poly, screenSource);
       this.#neonBox(ctx, poly);
     } else if (poly.length === 2) {
       this.#neonBox(ctx, poly);
@@ -94,7 +94,7 @@ export class HUDRenderer {
    * Invert is clipped to an inset of the SAME polygon as the neon stroke.
    * White + "difference" = photographic negative, works on iOS.
    */
-  #negativeInside(ctx, video, mirrored, map, poly) {
+  #negativeInside(ctx, video, mirrored, map, poly, screenSource) {
     const inner = insetPoly(poly, 4);
     if (inner.length < 3) return;
 
@@ -102,13 +102,17 @@ export class HUDRenderer {
     this.#path(ctx, inner);
     ctx.clip();
 
-    ctx.save();
-    if (mirrored) {
-      ctx.translate(this.cssW, 0);
-      ctx.scale(-1, 1);
+    if (screenSource) {
+      ctx.drawImage(screenSource, 0, 0, this.cssW, this.cssH);
+    } else {
+      ctx.save();
+      if (mirrored) {
+        ctx.translate(this.cssW, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, map.dx, map.dy, map.vw * map.scale, map.vh * map.scale);
+      ctx.restore();
     }
-    ctx.drawImage(video, map.dx, map.dy, map.vw * map.scale, map.vh * map.scale);
-    ctx.restore();
 
     ctx.globalCompositeOperation = "difference";
     ctx.fillStyle = "#ffffff";

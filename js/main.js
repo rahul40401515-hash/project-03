@@ -8,6 +8,7 @@ import { Camera } from "./camera.js";
 import { VisionEngine } from "./vision.js";
 import { Tracker } from "./tracker.js";
 import { HUDRenderer } from "./hud.js";
+import { PrivacyLayer } from "./privacy.js";
 import { bindControls } from "./ui.js";
 
 const state = {
@@ -20,10 +21,12 @@ const state = {
 
 const video = document.getElementById("camera");
 const canvas = document.getElementById("hud");
+const privacyCanvas = document.getElementById("privacy");
 const camera = new Camera(video);
 const vision = new VisionEngine();
 const tracker = new Tracker();
 const hud = new HUDRenderer(canvas);
+const privacy = new PrivacyLayer(privacyCanvas);
 
 let raf = 0;
 
@@ -139,16 +142,24 @@ function loop() {
     const now = performance.now();
     hud.enabled = state.hudOn;
 
-    if (state.cameraOn && camera.running && state.trackingOn && video.readyState >= 2) {
-      const dets = vision.detectFingers(video, now);
-      const snap = tracker.update(dets, now);
-      state.trackStatus = snap.status;
-      ui.syncMeta();
-      hud.draw({
-        video,
-        mirrored: camera.isFront(),
-        snapshot: snap,
-      });
+    if (state.cameraOn && camera.running && video.readyState >= 2) {
+      privacy.tick(video);
+      privacy.draw(video, camera.isFront(), vision.handBounds || []);
+
+      if (state.trackingOn) {
+        const dets = vision.detectFingers(video, now);
+        const snap = tracker.update(dets, now);
+        state.trackStatus = snap.status;
+        ui.syncMeta();
+        hud.draw({
+          video,
+          mirrored: camera.isFront(),
+          snapshot: snap,
+          screenSource: privacy.canvas,
+        });
+      } else {
+        hud.clear();
+      }
     } else {
       hud.clear();
     }
