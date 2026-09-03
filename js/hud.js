@@ -57,7 +57,7 @@ export class HUDRenderer {
     this.ctx.clearRect(0, 0, this.cssW, this.cssH);
   }
 
-  draw({ video, mirrored, snapshot, screenSource = null }) {
+  draw({ video, mirrored, snapshot }) {
     const ctx = this.ctx;
     this.clear();
     if (!this.enabled) return;
@@ -74,7 +74,7 @@ export class HUDRenderer {
     const poly = orderPoly(screen);
 
     if (poly.length >= 3) {
-      this.#negativeInside(ctx, video, mirrored, map, poly, screenSource);
+      this.#negativeInside(ctx, video, mirrored, map, poly);
       this.#neonBox(ctx, poly);
     } else if (poly.length === 2) {
       this.#neonBox(ctx, poly);

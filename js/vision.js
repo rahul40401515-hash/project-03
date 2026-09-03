@@ -22,7 +22,6 @@ export class VisionEngine {
     this.hands = null;
     this.handLandmarker = null;
     this.cached = [];
-    this.handBounds = [];
     this.fresh = false;
     this.busy = false;
     this.lastMediaTime = -1;
@@ -78,7 +77,6 @@ export class VisionEngine {
           const vw = this._vw || 1;
           const vh = this._vh || 1;
           this.cached = this.#fromLegacy(results, vw, vh);
-          this.handBounds = this.#boundsFromLegacy(results, vw, vh);
           this.fresh = true;
         });
         if (typeof hands.initialize === "function") {
@@ -147,9 +145,7 @@ export class VisionEngine {
       this.lastMediaTime = video.currentTime;
       try {
         const res = this.handLandmarker.detectForVideo(video, timestampMs);
-        const tips = this.#fromTasks(res, video);
-        this.handBounds = this.#boundsFromTasks(res, video);
-        return tips;
+        return this.#fromTasks(res, video);
       } catch (err) {
         console.warn("detect frame skipped", err);
         return [];
@@ -183,18 +179,6 @@ export class VisionEngine {
       }
     }
     return out;
-  }
-
-  #boundsFromLegacy(results, vw, vh) {
-    const hands = results?.multiHandLandmarks || [];
-    return hands.map((lm) => boundsOf(lm, vw, vh));
-  }
-
-  #boundsFromTasks(res, video) {
-    const hands = res?.landmarks || [];
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    return hands.map((lm) => boundsOf(lm, vw, vh));
   }
 
   #fromTasks(res, video) {
