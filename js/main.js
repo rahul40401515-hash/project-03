@@ -79,6 +79,10 @@ async function main() {
     logBoot(vision.backend === "hands" ? "HAND ENGINE READY" : "TRACKING READY");
     setBootProgress(100, "TRACKING READY");
     unlockStart();
+    privacy.init().then(() => logBoot("FACE BLUR READY")).catch((err) => {
+      console.warn(err);
+      logBoot("FACE BLUR OFF");
+    });
   } catch (err) {
     console.error(err);
     setBootProgress(100, "HAND MODEL FAILED");
@@ -155,7 +159,6 @@ function loop() {
           video,
           mirrored: camera.isFront(),
           snapshot: snap,
-          screenSource: privacy.canvas,
         });
       } else {
         hud.clear();

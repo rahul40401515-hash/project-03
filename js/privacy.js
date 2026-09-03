@@ -1,7 +1,6 @@
 /**
- * Anonymizer: hard-blur faces and clothing so a person cannot be recognized.
- * Hands are punched back out so fingertip tracking stays sharp.
- * Uses MediaPipe Face Detection (jsDelivr). Optional selfie segmentation.
+ * Transparent overlay: hard-blur face + clothing only.
+ * Does not replace the camera feed. Hands stay visible.
  */
 
 const FACE_CDNS = [
@@ -9,28 +8,19 @@ const FACE_CDNS = [
   "https://unpkg.com/@mediapipe/face_detection@0.4.1646425229",
 ];
 
-const SEG_CDNS = [
-  "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747",
-  "https://unpkg.com/@mediapipe/selfie_segmentation@0.1.1675465747",
-];
-
 export class PrivacyLayer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d", { alpha: false });
+    this.ctx = canvas.getContext("2d", { alpha: true });
     this.enabled = true;
+    this.ready = false;
     this.face = null;
-    this.seg = null;
     this.faces = [];
-    this.mask = null;
-    this.busyFace = false;
-    this.busySeg = false;
+    this.busy = false;
     this._vw = 1;
     this._vh = 1;
     this.tiny = document.createElement("canvas");
     this.tinyCtx = this.tiny.getContext("2d");
-    this.work = document.createElement("canvas");
-    this.workCtx = this.work.getContext("2d");
     this.frame = document.createElement("canvas");
     this.frameCtx = this.frame.getContext("2d");
     this.resize();
@@ -51,19 +41,7 @@ export class PrivacyLayer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  async init(onProgress = () => {}) {
-    onProgress(0.3, "LOADING FACE MODEL");
-    await this.#initFace();
-    onProgress(0.7, "LOADING BODY MASK");
-    try {
-      await this.#initSeg();
-    } catch (err) {
-      console.warn("Segmentation optional, using face/cloth boxes", err);
-    }
-    onProgress(1, "ANONYMIZER READY");
-  }
-
-  async #initFace() {
+  async init() {
     let lastErr;
     for (const base of FACE_CDNS) {
       try {
@@ -71,14 +49,15 @@ export class PrivacyLayer {
         const FaceDetection = window.FaceDetection;
         if (!FaceDetection) throw new Error("FaceDetection missing");
         const fd = new FaceDetection({ locateFile: (file) => `${base}/${file}` });
-        fd.setOptions({ model: "short", minDetectionConfidence: 0.45 });
+        fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
         fd.onResults((res) => {
-          this.faces = this.#parseFaces(res, this._vw, this._vh);
+          this.faces = parseFaces(res, this._vw, this._vh);
         });
         if (typeof fd.initialize === "function") {
-          await withTimeout(fd.initialize(), 18000, "face initialize");
+          await withTimeout(fd.initialize(), 16000, "face initialize");
         }
         this.face = fd;
+        this.ready = true;
         return;
       } catch (err) {
         lastErr = err;
@@ -87,52 +66,18 @@ export class PrivacyLayer {
     throw lastErr || new Error("Face model failed");
   }
 
-  async #initSeg() {
-    let lastErr;
-    for (const base of SEG_CDNS) {
-      try {
-        await loadScript(`${base}/selfie_segmentation.js`);
-        const SelfieSegmentation = window.SelfieSegmentation;
-        if (!SelfieSegmentation) throw new Error("SelfieSegmentation missing");
-        const ss = new SelfieSegmentation({ locateFile: (file) => `${base}/${file}` });
-        ss.setOptions({ modelSelection: 0 });
-        ss.onResults((res) => {
-          this.mask = res.segmentationMask || null;
-        });
-        if (typeof ss.initialize === "function") {
-          await withTimeout(ss.initialize(), 18000, "seg initialize");
-        }
-        this.seg = ss;
-        return;
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-    throw lastErr || new Error("Segmentation failed");
-  }
-
   tick(video) {
-    if (!video?.videoWidth) return;
+    if (!this.face || !video?.videoWidth) return;
     this._vw = video.videoWidth;
     this._vh = video.videoHeight;
-    if (this.face && !this.busyFace && video.readyState >= 2) {
-      this.busyFace = true;
-      this.face
-        .send({ image: video })
-        .catch(() => {})
-        .finally(() => {
-          this.busyFace = false;
-        });
-    }
-    if (this.seg && !this.busySeg && video.readyState >= 2) {
-      this.busySeg = true;
-      this.seg
-        .send({ image: video })
-        .catch(() => {})
-        .finally(() => {
-          this.busySeg = false;
-        });
-    }
+    if (this.busy || video.readyState < 2) return;
+    this.busy = true;
+    this.face
+      .send({ image: video })
+      .catch(() => {})
+      .finally(() => {
+        this.busy = false;
+      });
   }
 
   draw(video, mirrored, handBounds = []) {
@@ -140,7 +85,8 @@ export class PrivacyLayer {
     const w = this.cssW;
     const h = this.cssH;
     ctx.clearRect(0, 0, w, h);
-    if (!video?.videoWidth) return;
+    if (!this.enabled || !this.ready || !video?.videoWidth) return;
+    if (!this.faces.length) return;
 
     const map = mapping(video, w, h, mirrored);
     if (this.frame.width !== Math.round(w) || this.frame.height !== Math.round(h)) {
@@ -149,75 +95,28 @@ export class PrivacyLayer {
     }
     this.frameCtx.clearRect(0, 0, w, h);
     drawCover(this.frameCtx, video, map, mirrored, w);
-    ctx.drawImage(this.frame, 0, 0, w, h);
 
-    if (!this.enabled) return;
-
-    const cloth = this.faces.map((f) => clothFromFace(f));
-    const faces = this.faces.map((f) => toScreenRect(f, map));
-    const clothes = cloth.map((c) => toScreenRect(c, map));
     const hands = (handBounds || []).map((b) => toScreenRect(b, map));
 
-    if (this.mask) {
-      this.#blurMaskedPerson(ctx, video, map, mirrored, w, h);
-    }
-
-    for (const c of clothes) {
-      this.#hardBlur(ctx, c, 22, "rect");
-    }
-    for (const f of faces) {
-      this.#hardBlur(ctx, expand(f, 1.22), 36, "ellipse");
+    for (const f of this.faces) {
+      const face = expand(toScreenRect(f, map), 1.28);
+      const cloth = toScreenRect(clothFromFace(f), map);
+      this.#hardBlur(ctx, face, 40, "ellipse");
+      this.#hardBlur(ctx, cloth, 24, "rect");
     }
 
     for (const hand of hands) {
-      this.#restoreSharp(ctx, video, map, mirrored, w, expand(hand, 1.15));
+      this.#restoreVideo(ctx, video, map, mirrored, w, expand(hand, 1.2));
     }
-  }
-
-  #blurMaskedPerson(ctx, video, map, mirrored, w, h) {
-    const work = this.work;
-    const wctx = this.workCtx;
-    const dw = Math.max(160, Math.round(w / 4));
-    const dh = Math.max(90, Math.round(h / 4));
-    if (work.width !== dw || work.height !== dh) {
-      work.width = dw;
-      work.height = dh;
-    }
-    wctx.save();
-    wctx.clearRect(0, 0, dw, dh);
-    if (mirrored) {
-      wctx.translate(dw, 0);
-      wctx.scale(-1, 1);
-    }
-    wctx.drawImage(video, 0, 0, dw, dh);
-    wctx.globalCompositeOperation = "destination-in";
-    wctx.drawImage(this.mask, 0, 0, dw, dh);
-    wctx.restore();
-
-    const tinyW = Math.max(8, Math.round(dw / 18));
-    const tinyH = Math.max(8, Math.round(dh / 18));
-    this.tiny.width = tinyW;
-    this.tiny.height = tinyH;
-    this.tinyCtx.imageSmoothingEnabled = true;
-    this.tinyCtx.drawImage(work, 0, 0, tinyW, tinyH);
-
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = 1;
-    ctx.drawImage(this.tiny, 0, 0, tinyW, tinyH, 0, 0, w, h);
-    ctx.restore();
   }
 
   #hardBlur(ctx, rect, strength, shape) {
     let { x, y, w, h } = rect;
-    if (w < 8 || h < 8) return;
     x = Math.max(0, x);
     y = Math.max(0, y);
-    const maxW = this.cssW - x;
-    const maxH = this.cssH - y;
-    w = Math.min(w, maxW);
-    h = Math.min(h, maxH);
-    if (w < 8 || h < 8) return;
+    w = Math.min(w, this.cssW - x);
+    h = Math.min(h, this.cssH - y);
+    if (w < 10 || h < 10) return;
 
     const tw = Math.max(3, Math.round(w / strength));
     const th = Math.max(3, Math.round(h / strength));
@@ -231,7 +130,7 @@ export class PrivacyLayer {
     if (shape === "ellipse") {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else {
-      roundRect(ctx, x, y, w, h, Math.min(24, w * 0.12));
+      roundRect(ctx, x, y, w, h, Math.min(28, w * 0.14));
     }
     ctx.clip();
     ctx.imageSmoothingEnabled = true;
@@ -239,47 +138,22 @@ export class PrivacyLayer {
     ctx.restore();
   }
 
-  #restoreSharp(ctx, video, map, mirrored, cssW, rect) {
+  #restoreVideo(ctx, video, map, mirrored, cssW, rect) {
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w / 2, rect.h / 2, 0, 0, Math.PI * 2);
     ctx.clip();
-    drawCover(ctx, video, map, mirrored, cssW);
+    ctx.clearRect(rect.x, rect.y, rect.w, rect.h);
     ctx.restore();
-  }
-
-  #parseFaces(res, vw, vh) {
-    const dets = res?.detections || [];
-    return dets.map((d) => {
-      const bb = d.boundingBox || {};
-      let x, y, w, h;
-      if (bb.xMin != null) {
-        x = bb.xMin * vw;
-        y = bb.yMin * vh;
-        w = (bb.width ?? bb.xMax - bb.xMin) * vw;
-        h = (bb.height ?? bb.yMax - bb.yMin) * vh;
-      } else if (bb.originX != null) {
-        x = bb.originX;
-        y = bb.originY;
-        w = bb.width;
-        h = bb.height;
-      } else {
-        w = (bb.width || 0.2) * vw;
-        h = (bb.height || 0.2) * vh;
-        x = (bb.xCenter || 0.5) * vw - w / 2;
-        y = (bb.yCenter || 0.5) * vh - h / 2;
-      }
-      return { x, y, w, h };
-    });
   }
 }
 
 function clothFromFace(f) {
   return {
-    x: f.x + f.w / 2 - f.w * 1.25,
-    y: f.y + f.h * 0.72,
-    w: f.w * 2.5,
-    h: f.h * 3.6,
+    x: f.x + f.w * 0.5 - f.w * 1.05,
+    y: f.y + f.h * 0.78,
+    w: f.w * 2.1,
+    h: f.h * 2.4,
   };
 }
 
@@ -295,9 +169,15 @@ function mapping(video, cw, ch, mirrored) {
   const vw = video.videoWidth || 1;
   const vh = video.videoHeight || 1;
   const scale = Math.max(cw / vw, ch / vh);
-  const dx = (cw - vw * scale) / 2;
-  const dy = (ch - vh * scale) / 2;
-  return { scale, dx, dy, vw, vh, cw, mirrored };
+  return {
+    scale,
+    dx: (cw - vw * scale) / 2,
+    dy: (ch - vh * scale) / 2,
+    vw,
+    vh,
+    cw,
+    mirrored,
+  };
 }
 
 function toScreenRect(r, map) {
@@ -328,6 +208,31 @@ function drawCover(ctx, video, map, mirrored, cssW) {
   ctx.restore();
 }
 
+function parseFaces(res, vw, vh) {
+  const dets = res?.detections || [];
+  return dets.map((d) => {
+    const bb = d.boundingBox || {};
+    let x, y, w, h;
+    if (bb.xMin != null) {
+      x = bb.xMin * vw;
+      y = bb.yMin * vh;
+      w = (bb.width ?? bb.xMax - bb.xMin) * vw;
+      h = (bb.height ?? bb.yMax - bb.yMin) * vh;
+    } else if (bb.originX != null) {
+      x = bb.originX;
+      y = bb.originY;
+      w = bb.width;
+      h = bb.height;
+    } else {
+      w = (bb.width || 0.2) * vw;
+      h = (bb.height || 0.2) * vh;
+      x = (bb.xCenter || 0.5) * vw - w / 2;
+      y = (bb.yCenter || 0.5) * vh - h / 2;
+    }
+    return { x, y, w, h };
+  });
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.moveTo(x + rr, y);
@@ -348,7 +253,7 @@ function loadScript(src) {
     s.src = src;
     s.async = true;
     s.crossOrigin = "anonymous";
-    const t = setTimeout(() => reject(new Error(`timeout ${src}`)), 18000);
+    const t = setTimeout(() => reject(new Error(`timeout ${src}`)), 16000);
     s.onload = () => {
       clearTimeout(t);
       resolve();
